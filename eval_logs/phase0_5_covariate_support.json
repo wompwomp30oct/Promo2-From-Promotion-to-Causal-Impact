@@ -1,0 +1,7 @@
+{
+  "step": "phase0_5_covariate_support",
+  "logged_at_utc": "2026-08-20T23:09:55.267275+00:00",
+  "supports_time_varying_covariates": true,
+  "method": "differences.ATTgt.fit(formula='Sales ~ Promo + SchoolHoliday', base_period='varying')",
+  "note": "Promo is kept as a separate weekly confound variable, and ATTgt supports time-varying covariates via formulaic covariates."
+}

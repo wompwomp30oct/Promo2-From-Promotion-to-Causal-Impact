@@ -124,7 +124,7 @@ def validate_fallback_on_tutorial() -> dict[str, Any]:
     toy = toy.set_index(["Store", "Date"])
     from linearmodels.panel import PanelOLS
 
-    model = PanelOLS.from_formula("Sales ~ 1 + treated + EntityEffects + TimeEffects", data=toy, entity_effects=True, time_effects=True)
+    model = PanelOLS.from_formula("Sales ~ 1 + treated + EntityEffects + TimeEffects", data=toy)
     result = model.fit(cov_type="clustered", cluster_entity=True)
     payload = {
         "passed": bool(np.isfinite(result.params.get("treated", np.nan))),

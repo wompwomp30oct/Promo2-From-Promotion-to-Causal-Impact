@@ -61,8 +61,6 @@ def pooled_twfe_baseline(panel: pd.DataFrame) -> dict[str, Any]:
     model = PanelOLS.from_formula(
         "Sales ~ 1 + treated_post + EntityEffects + TimeEffects",
         data=usable,
-        entity_effects=True,
-        time_effects=True,
     )
     fitted = model.fit(cov_type="clustered", cluster_entity=True)
     payload = {
