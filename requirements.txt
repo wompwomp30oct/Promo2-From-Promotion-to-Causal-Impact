@@ -1,0 +1,9 @@
+pandas>=2.0
+numpy>=1.24
+pyarrow>=14.0
+scipy>=1.11
+statsmodels>=0.14
+linearmodels>=6.0
+differences>=0.2.0
+tfp-causalimpact
+matplotlib>=3.7

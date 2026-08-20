@@ -1,0 +1,16 @@
+{
+  "step": "phase0_step3_counts",
+  "logged_at_utc": "2026-08-20T21:28:40.486477+00:00",
+  "missing_adoption_dropped": 0,
+  "missing_adoption_guard_threshold": 500,
+  "excluded_early_thin_pre": 392,
+  "excluded_late_thin_post": 0,
+  "recoded_out_of_window": 0,
+  "usable_staggered_treated": 179,
+  "never_treated_donor_pool": 544,
+  "usable_treated_below_floor": false,
+  "panel_start": "2013-01-01",
+  "panel_end": "2015-07-31",
+  "early_buffer_weeks": 8,
+  "late_buffer_weeks": 8
+}

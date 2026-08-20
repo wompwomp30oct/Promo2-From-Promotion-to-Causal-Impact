@@ -1,0 +1,29 @@
+{
+  "step": "phase0_output",
+  "logged_at_utc": "2026-08-20T21:28:42.662357+00:00",
+  "output_path": "E:\\term end\\Projects\\Promo Campaign Compare\\promo-causal-impact\\data\\processed\\panel.parquet",
+  "row_count": 1017209,
+  "store_count": 1115,
+  "columns": [
+    "Store",
+    "DayOfWeek",
+    "Date",
+    "Sales",
+    "Customers",
+    "Open",
+    "Promo",
+    "StateHoliday",
+    "SchoolHoliday",
+    "StoreType",
+    "Assortment",
+    "CompetitionDistance",
+    "CompetitionOpenSinceMonth",
+    "CompetitionOpenSinceYear",
+    "Promo2",
+    "Promo2SinceWeek",
+    "Promo2SinceYear",
+    "PromoInterval",
+    "adoption_date",
+    "treatment_status"
+  ]
+}
