@@ -1,0 +1,25 @@
+{
+  "step": "phase0_5_primary_validation",
+  "logged_at_utc": "2026-08-20T22:48:39.471217+00:00",
+  "passed": false,
+  "tutorial_estimate": null,
+  "expected_estimate": 20.0,
+  "relative_error": Infinity,
+  "aggregation": {
+    "('SimpleAggregation', '', 'ATT')": {
+      "0": 20.000000000000007
+    },
+    "('SimpleAggregation', 'analytic', 'std_error')": {
+      "0": 3.76822190084106e-15
+    },
+    "('SimpleAggregation', 'pointwise conf. band', 'lower')": {
+      "0": 20.0
+    },
+    "('SimpleAggregation', 'pointwise conf. band', 'upper')": {
+      "0": 20.000000000000014
+    },
+    "('SimpleAggregation', 'pointwise conf. band', 'zero_not_in_cband')": {
+      "0": "*"
+    }
+  }
+}
