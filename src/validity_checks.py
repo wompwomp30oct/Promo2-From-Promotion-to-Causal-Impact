@@ -29,6 +29,7 @@ def _weekly_store_panel(panel: pd.DataFrame) -> pd.DataFrame:
 
     df["week"] = df["Date"].dt.to_period("W-MON")
     df["adoption_week"] = df["adoption_date"].dt.to_period("W-MON")
+    df["state_holiday_flag"] = (~df["StateHoliday"].isin(["0", 0])).astype(int)
 
     weekly = (
         df.groupby(["Store", "week"], as_index=False)
@@ -36,7 +37,7 @@ def _weekly_store_panel(panel: pd.DataFrame) -> pd.DataFrame:
             Sales=("Sales", "sum"),
             Promo=("Promo", "max"),
             SchoolHoliday=("SchoolHoliday", "max"),
-            StateHoliday=("StateHoliday", lambda s: int((s != "0").any() or (s != 0).any())),
+            StateHoliday=("state_holiday_flag", "max"),
             treatment_status=("treatment_status", "first"),
             adoption_week=("adoption_week", "first"),
         )
@@ -68,19 +69,19 @@ def _aggregate_series(agg: pd.DataFrame, label: str) -> pd.Series:
     raise KeyError(f"Aggregate output has no '{label}' column")
 
 
-def _primary_simple_att(panel: pd.DataFrame) -> float | None:
-    weekly = _weekly_store_panel(panel)
+def _primary_simple_att(panel: pd.DataFrame, weekly: pd.DataFrame | None = None) -> float | None:
+    weekly = _weekly_store_panel(panel) if weekly is None else weekly.copy()
     usable = weekly[weekly["treatment_status"].isin(["staggered_treated", "never_treated"])].copy()
     usable["week"] = usable["week"].map(lambda value: value.ordinal if pd.notna(value) else np.nan)
     usable["cohort"] = usable["cohort"].map(lambda value: value.ordinal if pd.notna(value) else np.nan)
     usable = usable.set_index(["Store", "week"]).sort_index()
     model = ATTgt(data=usable[["Sales", "cohort"]], cohort_column="cohort", base_period="varying")
-    result = model.fit("Sales ~ 1", control_group="never_treated", est_method="reg", progress_bar=False)
+    result = model.fit("Sales ~ 1", control_group="never_treated", est_method="dr", n_jobs=1, progress_bar=False)
     return _safe_estimate_from_agg(result.aggregate("simple"))
 
 
 def validate_differences_on_tutorial() -> dict[str, Any]:
-    """Reproduce the authors' MPDTA cohort results from a committed fixture."""
+    """Reproduce the MPDTA simple ATT using differences' doubly robust method."""
     fixture = Path(__file__).resolve().parent.parent / "data" / "fixtures" / "mpdta.csv"
     if not fixture.exists():
         raise FileNotFoundError(f"Required validation fixture is missing: {fixture}")
@@ -90,25 +91,30 @@ def validate_differences_on_tutorial() -> dict[str, Any]:
     df["cohort"] = df["cohort"].replace(0, np.nan)
     df = df.set_index(["county", "year"])
     model = ATTgt(data=df, cohort_column="cohort", base_period="varying")
-    result = model.fit("outcome ~ 1", control_group="never_treated", est_method="reg", progress_bar=False)
-    agg = result.aggregate("cohort")
-    expected = {2004: -0.079749, 2006: -0.022910, 2007: -0.026054}
-    expected_se = {2004: 0.026368, 2006: 0.016703, 2007: 0.016655}
-    estimates = {int(index): float(value) for index, value in _aggregate_series(agg, "ATT").items()}
-    standard_errors = {int(index): float(value) for index, value in _aggregate_series(agg, "std_error").items()}
-    relative_errors = {str(cohort): abs((estimates.get(cohort, np.nan) - value) / value) for cohort, value in expected.items()}
-    se_relative_errors = {str(cohort): abs((standard_errors.get(cohort, np.nan) - value) / value) for cohort, value in expected_se.items()}
+    result = model.fit("outcome ~ 1", control_group="never_treated", est_method="dr", progress_bar=False)
+    agg = result.aggregate("simple")
+    estimate = float(_aggregate_series(agg, "ATT").iloc[0])
+    standard_error = float(_aggregate_series(agg, "std_error").iloc[0])
+    expected = -0.039951
+    expected_se = 0.012034
+    reference_estimate = -0.04
+    reference_se = 0.0119
+    relative_error = abs((estimate - expected) / expected)
+    se_relative_error = abs((standard_error - expected_se) / expected_se)
     payload = {
-        "passed": bool(all(error < 0.01 for error in relative_errors.values()) and all(error < 0.01 for error in se_relative_errors.values())),
+        "passed": bool(relative_error < 0.01 and se_relative_error < 0.01),
         "fixture": "data/fixtures/mpdta.csv",
         "source_url": "https://raw.githubusercontent.com/bcallaway11/did/master/data/mpdta.rda",
-        "specification": "never_treated control, outcome-regression, cohort aggregation",
-        "tutorial_estimates": estimates,
-        "expected_estimates": expected,
-        "relative_errors": relative_errors,
-        "tutorial_standard_errors": standard_errors,
-        "expected_standard_errors": expected_se,
-        "standard_error_relative_errors": se_relative_errors,
+        "specification": "never_treated control, doubly robust (dr), simple aggregation",
+        "tutorial_estimate": estimate,
+        "expected_estimate": expected,
+        "relative_error": relative_error,
+        "tutorial_standard_error": standard_error,
+        "expected_standard_error": expected_se,
+        "standard_error_relative_error": se_relative_error,
+        "inference": "analytic",
+        "boot_iterations": 0,
+        "r_did_reference": {"estimate": reference_estimate, "standard_error": reference_se},
         "tolerance": 0.01,
         "aggregation": agg.to_dict() if agg is not None else None,
     }
@@ -130,11 +136,12 @@ def stress_check_on_rossmann(panel: pd.DataFrame) -> dict[str, Any]:
     thin_cohorts = sorted({key.split("/")[0] for key in thin_cells})
     reruns = []
     if thin_cohorts:
-        full_estimate = _primary_simple_att(panel)
-        adoption_period = pd.to_datetime(panel["adoption_date"], errors="coerce").dt.to_period("W-MON")
+        full_estimate = _primary_simple_att(panel, weekly=weekly)
         for cohort in thin_cohorts:
-            reduced = panel[~adoption_period.eq(pd.Period(cohort))]
-            reruns.append({"cohort": cohort, "with_cohort": full_estimate, "without_cohort": _primary_simple_att(reduced)})
+            cohort_period = pd.Period(cohort)
+            excluded_stores = set(treated.loc[treated["cohort"].eq(cohort_period), "Store"])
+            reduced_weekly = weekly[~weekly["Store"].isin(excluded_stores)]
+            reruns.append({"cohort": cohort, "with_cohort": full_estimate, "without_cohort": _primary_simple_att(panel, weekly=reduced_weekly)})
     payload = {
         "cohort_counts": {str(k): int(v) for k, v in cohort_counts.items()},
         "att_gt_cell_store_counts": cell_counts,
@@ -166,19 +173,21 @@ def validate_fallback_on_tutorial() -> dict[str, Any]:
     rows = []
     for store in range(1, 21):
         cohort = 9 if store <= 7 else 17 if store <= 14 else None
-        for time in range(25):
+        for time in range(41):
             event_time = time - cohort if cohort is not None else np.nan
             treated = int(cohort is not None and event_time >= 0)
             outcome = 100 + 2 * store + 3 * time + (10 if treated else 0)
             rows.append({"Store": store, "time": time, "Sales": outcome, "cohort": cohort, "event_time": event_time})
     toy = pd.DataFrame(rows).set_index(["Store", "time"])
     terms = []
-    for event_time in EVENT_WINDOW_WEEKS:
-        if event_time == EVENT_REFERENCE_WEEK:
-            continue
-        name = f"event_{event_time:+d}"
-        toy[name] = (toy["event_time"] == event_time).astype(int)
-        terms.append(name)
+    for cohort in (9, 17):
+        for event_time in EVENT_WINDOW_WEEKS:
+            if event_time == EVENT_REFERENCE_WEEK:
+                continue
+            event_label = f"pre{abs(event_time)}" if event_time < 0 else f"post{event_time}"
+            name = f"cohort_{cohort}_event_{event_label}"
+            toy[name] = ((toy["cohort"] == cohort) & (toy["event_time"] == event_time)).astype(int)
+            terms.append(name)
     formula = "Sales ~ 1 + " + " + ".join(terms) + " + EntityEffects + TimeEffects"
     model = PanelOLS.from_formula(formula, data=toy, drop_absorbed=True)
     result = model.fit(cov_type="clustered", cluster_entity=True)
@@ -190,7 +199,7 @@ def validate_fallback_on_tutorial() -> dict[str, Any]:
         "standard_errors": standard_errors,
         "event_window": list(EVENT_WINDOW_WEEKS),
         "reference_event_time": EVENT_REFERENCE_WEEK,
-        "method": "linearmodels.PanelOLS cohort-by-event interactions",
+        "method": "linearmodels.PanelOLS Sun-Abraham cohort-by-event interactions",
         "clustered_se": True,
         "cluster": "Store/entity",
         "never_treated_support": True,

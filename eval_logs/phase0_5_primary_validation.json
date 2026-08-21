@@ -1,66 +1,38 @@
 {
   "step": "phase0_5_primary_validation",
-  "logged_at_utc": "2026-08-21T14:54:15.101506+00:00",
+  "logged_at_utc": "2026-08-21T16:06:34.644910+00:00",
   "passed": true,
   "fixture": "data/fixtures/mpdta.csv",
   "source_url": "https://raw.githubusercontent.com/bcallaway11/did/master/data/mpdta.rda",
-  "specification": "never_treated control, outcome-regression, cohort aggregation",
-  "tutorial_estimates": {
-    "2004": -0.07974912657473043,
-    "2006": -0.022909539249540332,
-    "2007": -0.026054410719197185
-  },
-  "expected_estimates": {
-    "2004": -0.079749,
-    "2006": -0.02291,
-    "2007": -0.026054
-  },
-  "relative_errors": {
-    "2004": 1.587163857013659e-06,
-    "2006": 2.01113251709895e-05,
-    "2007": 1.5764151269814437e-05
-  },
-  "tutorial_standard_errors": {
-    "2004": 0.026367799435027022,
-    "2006": 0.016703330255162137,
-    "2007": 0.01665543534925218
-  },
-  "expected_standard_errors": {
-    "2004": 0.026368,
-    "2006": 0.016703,
-    "2007": 0.016655
-  },
-  "standard_error_relative_errors": {
-    "2004": 7.606377919331593e-06,
-    "2006": 1.9772206318488982e-05,
-    "2007": 2.6139252607582047e-05
+  "specification": "never_treated control, doubly robust (dr), simple aggregation",
+  "tutorial_estimate": -0.03995127515517695,
+  "expected_estimate": -0.039951,
+  "relative_error": 6.887316386289438e-06,
+  "tutorial_standard_error": 0.012034012770185417,
+  "expected_standard_error": 0.012034,
+  "standard_error_relative_error": 1.061175454362755e-06,
+  "inference": "analytic",
+  "boot_iterations": 0,
+  "r_did_reference": {
+    "estimate": -0.04,
+    "standard_error": 0.0119
   },
   "tolerance": 0.01,
   "aggregation": {
-    "('CohortAggregation', '', 'ATT')": {
-      "2004": -0.07974912657473043,
-      "2006": -0.022909539249540332,
-      "2007": -0.026054410719197185
+    "('SimpleAggregation', '', 'ATT')": {
+      "0": -0.03995127515517695
     },
-    "('CohortAggregation', 'analytic', 'std_error')": {
-      "2004": 0.026367799435027022,
-      "2006": 0.016703330255162137,
-      "2007": 0.01665543534925218
+    "('SimpleAggregation', 'analytic', 'std_error')": {
+      "0": 0.012034012770185417
     },
-    "('CohortAggregation', 'pointwise conf. band', 'lower')": {
-      "2004": -0.13142906381895897,
-      "2006": -0.05564746497153635,
-      "2007": -0.058698464150566745
+    "('SimpleAggregation', 'pointwise conf. band', 'lower')": {
+      "0": -0.06353750677423545
     },
-    "('CohortAggregation', 'pointwise conf. band', 'upper')": {
-      "2004": -0.028069189330501884,
-      "2006": 0.009828386472455687,
-      "2007": 0.00658964271217238
+    "('SimpleAggregation', 'pointwise conf. band', 'upper')": {
+      "0": -0.016365043536118444
     },
-    "('CohortAggregation', 'pointwise conf. band', 'zero_not_in_cband')": {
-      "2004": "*",
-      "2006": "",
-      "2007": ""
+    "('SimpleAggregation', 'pointwise conf. band', 'zero_not_in_cband')": {
+      "0": "*"
     }
   }
 }

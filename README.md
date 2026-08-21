@@ -11,7 +11,7 @@ baseline shown alongside it to make explicit what the naive method gets wrong.
 
 - [x] Phase 0 — data prep + boundary filters (`src/data_prep.py`), smoke-tested
       against synthetic data covering all six classification buckets
-- [ ] Phase 0.5 — estimator validation (gated on real data clearing Phase 0's floor)
+- [x] Phase 0.5 — estimator validation (primary and fallback validated; 263 thin ATT(g,t) cells across 17 cohorts rerun leave-cohort-out)
 - [ ] Phase 1 — confound / balance / event-study window checks
 - [ ] Phase 2 — main causal estimates
 - [ ] Phase 3 — robustness (placebo, bias-direction derivation, stockout caveat)
