@@ -30,6 +30,8 @@ LATE_BUFFER_WEEKS = 8   # kept as a separate constant (not reused from EARLY_*)
                          # need to diverge.
 THIN_CELL_MIN_STORES = 10
 USABLE_TREATED_FLOOR = 50  # rough floor before the design itself is questioned
+EVENT_WINDOW_WEEKS = tuple(range(-8, 9))
+EVENT_REFERENCE_WEEK = -1
 MISSING_ADOPTION_DROP_GUARD = 500  # raise (not just warn) above this count --
                                     # SinceWeek/Year should be structurally
                                     # null only for Promo2=0 stores, so a

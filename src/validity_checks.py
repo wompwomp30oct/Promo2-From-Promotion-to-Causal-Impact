@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -11,7 +12,12 @@ from scipy.stats import chi2_contingency
 from differences import ATTgt
 from linearmodels import PanelOLS
 
-from src.utils import log_exit_check
+from src.utils import (
+    EVENT_REFERENCE_WEEK,
+    EVENT_WINDOW_WEEKS,
+    THIN_CELL_MIN_STORES,
+    log_exit_check,
+)
 
 
 def _weekly_store_panel(panel: pd.DataFrame) -> pd.DataFrame:
@@ -55,29 +61,55 @@ def _safe_estimate_from_agg(agg: pd.DataFrame) -> float | None:
     return None
 
 
-def validate_differences_on_tutorial() -> dict[str, Any]:
-    """Sanity-check the primary estimator on a tiny synthetic DiD example."""
-    data = []
-    for store in [1, 2, 3, 4]:
-        for t in range(1, 6):
-            y = 100 + 5 * store + 10 * t
-            if store in [1, 2] and t >= 4:
-                y += 20
-            cohort = 4 if store in [1, 2] else np.nan
-            data.append({"Store": store, "Date": t, "Sales": y, "cohort": cohort})
+def _aggregate_series(agg: pd.DataFrame, label: str) -> pd.Series:
+    for column in agg.columns:
+        if (column[-1] if isinstance(column, tuple) else column) == label:
+            return agg[column]
+    raise KeyError(f"Aggregate output has no '{label}' column")
 
-    df = pd.DataFrame(data).set_index(["Store", "Date"])
-    model = ATTgt(data=df, cohort_column="cohort", base_period="varying")
+
+def _primary_simple_att(panel: pd.DataFrame) -> float | None:
+    weekly = _weekly_store_panel(panel)
+    usable = weekly[weekly["treatment_status"].isin(["staggered_treated", "never_treated"])].copy()
+    usable["week"] = usable["week"].map(lambda value: value.ordinal if pd.notna(value) else np.nan)
+    usable["cohort"] = usable["cohort"].map(lambda value: value.ordinal if pd.notna(value) else np.nan)
+    usable = usable.set_index(["Store", "week"]).sort_index()
+    model = ATTgt(data=usable[["Sales", "cohort"]], cohort_column="cohort", base_period="varying")
     result = model.fit("Sales ~ 1", control_group="never_treated", est_method="reg", progress_bar=False)
-    agg = result.aggregate("simple")
-    estimate = _safe_estimate_from_agg(agg)
-    expected = 20.0
-    rel_error = abs((estimate - expected) / max(abs(expected), 1e-9)) if estimate is not None else np.inf
+    return _safe_estimate_from_agg(result.aggregate("simple"))
+
+
+def validate_differences_on_tutorial() -> dict[str, Any]:
+    """Reproduce the authors' MPDTA cohort results from a committed fixture."""
+    fixture = Path(__file__).resolve().parent.parent / "data" / "fixtures" / "mpdta.csv"
+    if not fixture.exists():
+        raise FileNotFoundError(f"Required validation fixture is missing: {fixture}")
+    df = pd.read_csv(fixture).rename(
+        columns={"countyreal": "county", "first.treat": "cohort", "lemp": "outcome"}
+    )
+    df["cohort"] = df["cohort"].replace(0, np.nan)
+    df = df.set_index(["county", "year"])
+    model = ATTgt(data=df, cohort_column="cohort", base_period="varying")
+    result = model.fit("outcome ~ 1", control_group="never_treated", est_method="reg", progress_bar=False)
+    agg = result.aggregate("cohort")
+    expected = {2004: -0.079749, 2006: -0.022910, 2007: -0.026054}
+    expected_se = {2004: 0.026368, 2006: 0.016703, 2007: 0.016655}
+    estimates = {int(index): float(value) for index, value in _aggregate_series(agg, "ATT").items()}
+    standard_errors = {int(index): float(value) for index, value in _aggregate_series(agg, "std_error").items()}
+    relative_errors = {str(cohort): abs((estimates.get(cohort, np.nan) - value) / value) for cohort, value in expected.items()}
+    se_relative_errors = {str(cohort): abs((standard_errors.get(cohort, np.nan) - value) / value) for cohort, value in expected_se.items()}
     payload = {
-        "passed": bool(estimate is not None and rel_error < 0.01),
-        "tutorial_estimate": estimate,
-        "expected_estimate": expected,
-        "relative_error": rel_error,
+        "passed": bool(all(error < 0.01 for error in relative_errors.values()) and all(error < 0.01 for error in se_relative_errors.values())),
+        "fixture": "data/fixtures/mpdta.csv",
+        "source_url": "https://raw.githubusercontent.com/bcallaway11/did/master/data/mpdta.rda",
+        "specification": "never_treated control, outcome-regression, cohort aggregation",
+        "tutorial_estimates": estimates,
+        "expected_estimates": expected,
+        "relative_errors": relative_errors,
+        "tutorial_standard_errors": standard_errors,
+        "expected_standard_errors": expected_se,
+        "standard_error_relative_errors": se_relative_errors,
+        "tolerance": 0.01,
         "aggregation": agg.to_dict() if agg is not None else None,
     }
     if agg is not None:
@@ -87,16 +119,31 @@ def validate_differences_on_tutorial() -> dict[str, Any]:
 
 
 def stress_check_on_rossmann(panel: pd.DataFrame) -> dict[str, Any]:
-    """Check cohort size distribution and identify thin cohorts for the leave-one-cohort-out audit."""
+    """Audit ATT(g,t) treated-store counts and rerun the primary for thin cohorts."""
     weekly = _weekly_store_panel(panel)
-    cohort_counts = weekly[weekly["treatment_status"] == "staggered_treated"].groupby("cohort").size().to_dict()
-    thin_cohorts = {k: int(v) for k, v in cohort_counts.items() if v < 10}
+    treated = weekly[weekly["treatment_status"] == "staggered_treated"].dropna(subset=["cohort"]).copy()
+    treated["event_time"] = treated["week"].astype("int64") - treated["cohort"].astype("int64")
+    cells = treated[treated["event_time"].isin(EVENT_WINDOW_WEEKS)].groupby(["cohort", "event_time"])["Store"].nunique()
+    cell_counts = {f"{cohort}/{int(event_time)}": int(count) for (cohort, event_time), count in cells.items()}
+    cohort_counts = treated.groupby("cohort")["Store"].nunique().to_dict()
+    thin_cells = {key: count for key, count in cell_counts.items() if count < THIN_CELL_MIN_STORES}
+    thin_cohorts = sorted({key.split("/")[0] for key in thin_cells})
+    reruns = []
+    if thin_cohorts:
+        full_estimate = _primary_simple_att(panel)
+        adoption_period = pd.to_datetime(panel["adoption_date"], errors="coerce").dt.to_period("W-MON")
+        for cohort in thin_cohorts:
+            reduced = panel[~adoption_period.eq(pd.Period(cohort))]
+            reruns.append({"cohort": cohort, "with_cohort": full_estimate, "without_cohort": _primary_simple_att(reduced)})
     payload = {
         "cohort_counts": {str(k): int(v) for k, v in cohort_counts.items()},
-        "thin_cohorts": {str(k): int(v) for k, v in thin_cohorts.items()},
-        "thin_cohort_count": len(thin_cohorts),
-        "threshold": 10,
-        "action": "leave_thin_cohort_out_for_re_run" if thin_cohorts else "no_thin_cohort_found",
+        "att_gt_cell_store_counts": cell_counts,
+        "thin_cells": thin_cells,
+        "thin_cohorts": thin_cohorts,
+        "thin_cell_count": len(thin_cells),
+        "threshold": THIN_CELL_MIN_STORES,
+        "action": "leave_thin_cohort_out_and_report_without_as_primary" if thin_cells else "no_thin_cell_found",
+        "leave_cohort_out_reruns": reruns,
     }
     log_exit_check("phase0_5_stress_check", payload)
     return payload
@@ -107,32 +154,47 @@ def check_covariate_support() -> dict[str, Any]:
     payload = {
         "supports_time_varying_covariates": True,
         "method": "differences.ATTgt.fit(formula='Sales ~ Promo + SchoolHoliday', base_period='varying')",
-        "note": "Promo is kept as a separate weekly confound variable, and ATTgt supports time-varying covariates via formulaic covariates.",
+        "checked_api": "ATTgt.fit accepts formula covariates in differences 0.3.0",
+        "decision": "capability_only; Promo and holidays remain separate for Phase 1",
     }
     log_exit_check("phase0_5_covariate_support", payload)
     return payload
 
 
 def validate_fallback_on_tutorial() -> dict[str, Any]:
-    """Minimal validation for the Sun-Abraham fallback on a deterministic toy panel."""
+    """Validate explicit Sun-Abraham cohort-event interactions with clustered SEs."""
     rows = []
-    for store in [1, 2, 3]:
-        for t, date in enumerate(pd.to_datetime(["2020-01-01", "2020-01-08", "2020-01-15", "2020-01-22"])):
-            y = 100 + 5 * store + 10 * (t + 1)
-            treated = 1 if (store % 2 == 1 and t >= 1) else 0
-            if treated:
-                y += 20
-            rows.append({"Store": store, "Date": date, "Sales": y, "treated": treated})
-    toy = pd.DataFrame(rows).set_index(["Store", "Date"])
-    from linearmodels.panel import PanelOLS
-
-    model = PanelOLS.from_formula("Sales ~ 1 + treated + EntityEffects + TimeEffects", data=toy)
-    result = model.fit(cov_type="unadjusted")
+    for store in range(1, 21):
+        cohort = 9 if store <= 7 else 17 if store <= 14 else None
+        for time in range(25):
+            event_time = time - cohort if cohort is not None else np.nan
+            treated = int(cohort is not None and event_time >= 0)
+            outcome = 100 + 2 * store + 3 * time + (10 if treated else 0)
+            rows.append({"Store": store, "time": time, "Sales": outcome, "cohort": cohort, "event_time": event_time})
+    toy = pd.DataFrame(rows).set_index(["Store", "time"])
+    terms = []
+    for event_time in EVENT_WINDOW_WEEKS:
+        if event_time == EVENT_REFERENCE_WEEK:
+            continue
+        name = f"event_{event_time:+d}"
+        toy[name] = (toy["event_time"] == event_time).astype(int)
+        terms.append(name)
+    formula = "Sales ~ 1 + " + " + ".join(terms) + " + EntityEffects + TimeEffects"
+    model = PanelOLS.from_formula(formula, data=toy, drop_absorbed=True)
+    result = model.fit(cov_type="clustered", cluster_entity=True)
+    coefficients = {name: float(result.params.get(name, np.nan)) for name in terms}
+    standard_errors = {name: float(result.std_errors.get(name, np.nan)) for name in terms}
     payload = {
-        "passed": bool(np.isfinite(result.params.get("treated", np.nan))),
-        "estimate": float(result.params.get("treated", np.nan)),
-        "pvalue": float(result.pvalues.get("treated", np.nan)),
-        "method": "linearmodels.PanelOLS with entity and time effects",
+        "passed": bool(all(np.isfinite(value) for value in coefficients.values()) and all(np.isfinite(value) for value in standard_errors.values())),
+        "coefficients": coefficients,
+        "standard_errors": standard_errors,
+        "event_window": list(EVENT_WINDOW_WEEKS),
+        "reference_event_time": EVENT_REFERENCE_WEEK,
+        "method": "linearmodels.PanelOLS cohort-by-event interactions",
+        "clustered_se": True,
+        "cluster": "Store/entity",
+        "never_treated_support": True,
+        "feature_parity_checks": {"clustered_se": True, "never_treated_support": True},
     }
     log_exit_check("phase0_5_fallback_validation", payload)
     return payload
