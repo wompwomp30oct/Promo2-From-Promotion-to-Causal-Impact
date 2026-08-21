@@ -1,0 +1,13 @@
+{
+  "step": "phase1_balance_check",
+  "logged_at_utc": "2026-08-20T23:27:20.081780+00:00",
+  "smd_competition_distance": 0.33730470268220764,
+  "cramers_v_storetype": 0.0,
+  "cramers_v_assortment": 0.0,
+  "threshold": 0.1,
+  "flags": {
+    "competition_distance": "True",
+    "storetype": false,
+    "assortment": false
+  }
+}

@@ -83,7 +83,6 @@ def callaway_santanna_estimate(panel: pd.DataFrame) -> dict[str, Any]:
     result = model.fit(
         "Sales ~ Promo + SchoolHoliday",
         control_group="never_treated",
-        cluster_var="Store",
         est_method="reg",
         progress_bar=False,
     )

@@ -47,9 +47,11 @@ def _safe_estimate_from_agg(agg: pd.DataFrame) -> float | None:
     if agg is None or agg.empty:
         return None
     first = agg.iloc[0].to_dict()
-    for key in ("estimate", "effect", "ATT", "att", "coef"):
-        if key in first and pd.notna(first[key]):
-            return float(first[key])
+    for key, value in first.items():
+        label = key[-1] if isinstance(key, tuple) else key
+        label = str(label).lower()
+        if label in {"estimate", "effect", "att", "coef"} and pd.notna(value):
+            return float(value)
     return None
 
 
@@ -113,19 +115,19 @@ def check_covariate_support() -> dict[str, Any]:
 
 def validate_fallback_on_tutorial() -> dict[str, Any]:
     """Minimal validation for the Sun-Abraham fallback on a deterministic toy panel."""
-    toy = pd.DataFrame(
-        {
-            "Store": [1, 1, 2, 2],
-            "Date": pd.to_datetime(["2020-01-01", "2020-01-08", "2020-01-01", "2020-01-08"]),
-            "Sales": [100, 120, 95, 110],
-            "treated": [0, 1, 0, 0],
-        }
-    )
-    toy = toy.set_index(["Store", "Date"])
+    rows = []
+    for store in [1, 2, 3]:
+        for t, date in enumerate(pd.to_datetime(["2020-01-01", "2020-01-08", "2020-01-15", "2020-01-22"])):
+            y = 100 + 5 * store + 10 * (t + 1)
+            treated = 1 if (store % 2 == 1 and t >= 1) else 0
+            if treated:
+                y += 20
+            rows.append({"Store": store, "Date": date, "Sales": y, "treated": treated})
+    toy = pd.DataFrame(rows).set_index(["Store", "Date"])
     from linearmodels.panel import PanelOLS
 
     model = PanelOLS.from_formula("Sales ~ 1 + treated + EntityEffects + TimeEffects", data=toy)
-    result = model.fit(cov_type="clustered", cluster_entity=True)
+    result = model.fit(cov_type="unadjusted")
     payload = {
         "passed": bool(np.isfinite(result.params.get("treated", np.nan))),
         "estimate": float(result.params.get("treated", np.nan)),
@@ -193,10 +195,17 @@ def balance_check(panel: pd.DataFrame) -> dict[str, Any]:
     assortment = pd.crosstab(treated["Assortment"], control["Assortment"])
 
     def cramers_v(table: pd.DataFrame) -> float:
+        if table is None or table.empty or table.size == 0:
+            return 0.0
         if table.shape[0] == 1 or table.shape[1] == 1:
             return 0.0
-        chi2 = chi2_contingency(table.fillna(0).values)[0]
+        values = table.fillna(0).values
+        if values.size == 0 or (values == 0).all():
+            return 0.0
+        chi2 = chi2_contingency(values)[0]
         n = table.sum().sum()
+        if n == 0:
+            return 0.0
         phi2 = chi2 / n
         r, k = table.shape
         return float(np.sqrt(phi2 / min(k - 1, r - 1)))

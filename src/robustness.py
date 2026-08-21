@@ -49,7 +49,13 @@ def placebo_test(panel: pd.DataFrame, placebo_weeks: int = 12) -> dict[str, Any]
     result = model.fit("Sales ~ 1", control_group="never_treated", est_method="reg", progress_bar=False)
     agg = result.aggregate("simple")
     first = agg.iloc[0].to_dict() if not agg.empty else {}
-    estimate = first.get("estimate", first.get("effect", np.nan))
+    estimate = np.nan
+    for key, value in first.items():
+        label = key[-1] if isinstance(key, tuple) else key
+        label = str(label).lower()
+        if label in {"estimate", "effect", "att", "coef"} and pd.notna(value):
+            estimate = float(value)
+            break
     payload = {
         "placebo_weeks": placebo_weeks,
         "estimate": float(estimate) if pd.notna(estimate) else np.nan,

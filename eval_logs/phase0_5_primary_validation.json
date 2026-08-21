@@ -1,10 +1,10 @@
 {
   "step": "phase0_5_primary_validation",
-  "logged_at_utc": "2026-08-20T23:07:46.131605+00:00",
-  "passed": false,
-  "tutorial_estimate": null,
+  "logged_at_utc": "2026-08-20T23:21:30.707642+00:00",
+  "passed": true,
+  "tutorial_estimate": 20.000000000000007,
   "expected_estimate": 20.0,
-  "relative_error": Infinity,
+  "relative_error": 3.552713678800501e-16,
   "aggregation": {
     "('SimpleAggregation', '', 'ATT')": {
       "0": 20.000000000000007
